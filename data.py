@@ -4,7 +4,7 @@ import streamlit as st
 from geopy.geocoders import GoogleV3
 
 
-api_key = 'AIzaSyAGjauD74twN-leFtr5dGDzM203i94ZK4U'
+api_key = st.secrets["api_key"]
 
 geolocator = GoogleV3(api_key=api_key)
 
