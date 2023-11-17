@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta
 import pandas as pd
-import os
 import streamlit as st
 from geopy.geocoders import GoogleV3
 
