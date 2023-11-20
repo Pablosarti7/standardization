@@ -12,7 +12,8 @@ st.write("""
 
 with st.sidebar:
     st.write("""
-         Download the files and upload them to standardize.""")
+             This files below are a sample files, download them and then upload them to start 
+             the standardization. Then compare the original files with the new processed files.""")
     
     with open("pr-file.csv", "rb") as file:
         st.download_button(
