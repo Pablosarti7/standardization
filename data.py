@@ -1,86 +1,95 @@
-from datetime import datetime, timedelta
 import pandas as pd
 import streamlit as st
-from geopy.geocoders import GoogleV3
+import requests
+import usaddress
 
-
-api_key = st.secrets["api_key"]
-
-geolocator = GoogleV3(api_key=api_key)
+api_key = 'AIzaSyAGjauD74twN-leFtr5dGDzM203i94ZK4U'
 
 st.write("""
          # Data Cleaning
-         Upload a zillow and a Realtor CSV file.
+         Start by downloading the sample files on the sidebar.
 """)
 
-uploaded_file_one = st.file_uploader("Choose PR file", type=['csv'])
+with st.sidebar:
+    st.write("""
+         Download the files and upload them to standardize.""")
+    
+    with open("pr-file.csv", "rb") as file:
+        st.download_button(
+            label="Download PR file.",
+            data=file,
+            file_name='pr.csv',
+            mime='text/csv',
+        )
+
+    with open("zillow-file.csv", "rb") as file:
+        st.download_button(
+            label="Download Zillow file.",
+            data=file,
+            file_name='zillow.csv',
+            mime='text/csv',
+        )
+
+uploaded_file_one = st.file_uploader("Input PR file", type=['csv'])
+
+uploaded_file_two = st.file_uploader("Input Zillow file", type=['csv'])
 st.markdown("---")
-uploaded_file_two = st.file_uploader("Choose Zillow file", type=['csv'])
-
-
 
 if uploaded_file_one is not None and uploaded_file_two is not None:
-    pr_df = pd.read_csv(uploaded_file_one)
-    zillow_df = pd.read_csv(uploaded_file_two)
-    
-    def standardize_address(address):
-        location = geolocator.geocode(address)
+    with st.status("Reading files.", expanded=True) as status:
 
-        if location:
-            return location.address
-        else:
-            return None
+        pr_df = pd.read_csv(uploaded_file_one)
+        zillow_df = pd.read_csv(uploaded_file_two)
 
+        def parse_address(address):
+            try:
+                return usaddress.tag(address)
+            except usaddress.RepeatedLabelError as e:
+                return 'Address parsing failed'
+
+        def standardize_address(address, api_key):
+            parsed_address = parse_address(address)
+            if parsed_address is None:
+                return 'Parsed address is empty'
+
+            # Construct a query for the API
+            try:
+                query = ' '.join(parsed_address[0].values())
+            except AttributeError:
+                query = 'None'
+
+            response = requests.get(f"https://api.opencagedata.com/geocode/v1/json?q={query}&key={api_key}")
+            
+            if response.status_code != 200:
+                return 'API request failed'
+            
+            data = response.json()
+            # Extract the standardized address
+            # The structure depends on the API response format
+            if data['results']:
+                return data['results'][0]['formatted']
+
+            return 'No results found'
+
+        api_key = '1cf198e6626b4be1bc9e375edf5053d5'
         
-    pr_df['standardized_address'] = pr_df['Address'].apply(standardize_address)
-    zillow_df['standardized_address'] = zillow_df['address/streetAddress'].apply(standardize_address)
-    
-    # st.dataframe(pr_df)
-    # st.dataframe(zillow_df)
+        st.write("Standardizing PR file")
 
-    merged_data = pd.merge(pr_df, zillow_df, on='standardized_address')
+        for index, row in pr_df.iterrows():
+            address = str(row['Address']) + " " + str(row['City']) + " " + str(row['State']) + " " + str(row['ZIP'])
+            standardized = standardize_address(address, api_key)
+            if standardized:
+                pr_df.at[index, 'Address'] = standardized
 
-    columns_to_keep = ['Address', 'City', 'State', 'ZIP', 'Est Value', 'Est Open Loans $', '1st Rate %', 'Purchase Date',
-                    'listedBy/email', 'listedBy/name', 'listedBy/phone', 'listedBy/profileUrl',
-                    'livingArea', 'longitude', 'lotSize', 'pageViewCount', 'price',
-                    'rentZestimate', 'timeOnZillow', 'url', 'yearBuilt', 'zestimate'
-    ]
+        st.write("Standardizing Zillow file")
 
-    merged_data = merged_data[columns_to_keep]
-    
-    ####
+        for index, row in zillow_df.iterrows():
+            address = str(row['address/streetAddress']) + " " + str(row['address/city']) + " " + str(row['address/state']) + " " + str(row['address/zipcode'])
+            standardized = standardize_address(address, api_key)
+            if standardized:
+                zillow_df.at[index, 'address/streetAddress'] = standardized
 
-    # Ensure the columns are in numeric format
-    merged_data['Est Open Loans $'] = pd.to_numeric(merged_data['Est Open Loans $'], errors='coerce')
-    merged_data['price'] = pd.to_numeric(merged_data['price'], errors='coerce')
+        st.dataframe(pr_df)
+        st.dataframe(zillow_df)
 
-    # Calculate the ratio
-    merged_data['Loans_to_Price'] = merged_data['Est Open Loans $'] / merged_data['price']
-
-    # Filter rows where this value is greater than 88%
-    merged_data = merged_data[merged_data['Loans_to_Price'] > 0.88]
-
-    # Convert '1st Rate %' to string, then remove '%' and convert to float
-    merged_data['1st Rate %'] = merged_data['1st Rate %'].astype(str).str.rstrip('%').astype(float) / 100
-
-    # Now filter rows
-    merged_data = merged_data[merged_data['1st Rate %'] <= 0.05]
-
-    ####
-
-    # Convert "Purchase Date" to datetime format
-    merged_data['Purchase Date'] = pd.to_datetime(merged_data['Purchase Date'], errors='coerce')
-
-    # Get the date for 3 years ago from today
-    three_years_ago = datetime.today() - timedelta(days=3*365)
-
-    # Keep rows where "1st Rate %" is blank and "Purchase Date" is more than 3 years from today
-    merged_data = merged_data[(~merged_data['1st Rate %'].isnull()) | ((merged_data['1st Rate %'].isnull()) & (merged_data['Purchase Date'] < three_years_ago))]
-
-    # Get the date for 1 year ago from today
-    one_year_ago = datetime.today() - timedelta(days=365)
-
-    # Filter rows
-    merged_data = merged_data[merged_data['Purchase Date'] >= one_year_ago]
-
-    st.dataframe(merged_data)
+    st.success('Done!')
