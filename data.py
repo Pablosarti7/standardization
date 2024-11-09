@@ -3,7 +3,7 @@ import streamlit as st
 import requests
 import usaddress
 
-api_key = 'AIzaSyAGjauD74twN-leFtr5dGDzM203i94ZK4U'
+api_key = 'API_KEY'
 
 st.write("""
          # Data Cleaning
